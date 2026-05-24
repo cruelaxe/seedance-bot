@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 
 # Your Bot Token
 import os
-BOT_TOKEN = os.environ.get("1337331549:AAGFbCkxLVgDi4T2khzrrOJoAiz73BtjoD0")
+BOT_TOKEN = os.environ.get("BOT_TOKEN")
 
 
 def generate_video(prompt: str) -> str:
