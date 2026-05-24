@@ -1,7 +1,8 @@
 import requests
 import re
-import time
+import asyncio
 import logging
+import os
 from user_agent import generate_user_agent
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
@@ -13,23 +14,27 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Your Bot Token
-import os
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 
 
-def generate_video(prompt: str) -> str:
+def generate_video(prompt: str):
     """Generate video using veoaifree.com"""
     try:
         ua = generate_user_agent()
         h = {'user-agent': ua}
 
         # Step 1: Get nonce
-        r = requests.post('https://veoaifree.com/veo-video-generator/', headers=h)
+        print(f"📡 Step 1: Getting nonce...")
+        r = requests.post('https://veoaifree.com/veo-video-generator/', headers=h, timeout=30)
+        print(f"📥 Step 1 status: {r.status_code}")
+        print(f"📥 Step 1 body (first 500): {r.text[:500]}")
+        
         match = re.search(r'"nonce":"([^"]+)"', r.text)
         if not match:
-            return None, "❌ Failed to get nonce"
+            print("❌ No nonce found!")
+            return None, f"❌ Failed to get nonce. Response: {r.text[:200]}"
         non = match.group(1)
+        print(f"✅ Nonce found: {non}")
 
         # Step 2: Generate video
         headers2 = {
@@ -37,14 +42,7 @@ def generate_video(prompt: str) -> str:
             'accept-language': 'en-US',
             'content-type': 'application/x-www-form-urlencoded; charset=UTF-8',
             'origin': 'https://veoaifree.com',
-            'priority': 'u=1, i',
             'referer': 'https://veoaifree.com/veo-video-generator/',
-            'sec-ch-ua': '"Chromium";v="127", "Not)A;Brand";v="99"',
-            'sec-ch-ua-mobile': '?1',
-            'sec-ch-ua-platform': '"Android"',
-            'sec-fetch-dest': 'empty',
-            'sec-fetch-mode': 'cors',
-            'sec-fetch-site': 'same-origin',
             'user-agent': ua,
             'x-requested-with': 'XMLHttpRequest',
         }
@@ -58,34 +56,23 @@ def generate_video(prompt: str) -> str:
             'actionType': 'full-video-generate',
         }
 
+        print(f"📡 Step 2: Sending generation request...")
         r2 = requests.post(
             'https://veoaifree.com/wp-admin/admin-ajax.php',
             headers=headers2,
-            data=data2
+            data=data2,
+            timeout=30
         )
+        print(f"📥 Step 2 status: {r2.status_code}")
+        print(f"📥 Step 2 body: {r2.text[:500]}")
+
         match2 = re.search(r'\b(\d+)\b', r2.text)
         if not match2:
-            return None, "❌ Failed to get scene ID"
+            return None, f"❌ Failed to get scene ID. Response: {r2.text[:300]}"
         l = match2.group(1)
+        print(f"✅ Scene ID: {l}")
 
         # Step 3: Wait and get results
-        headers3 = {
-            'accept': '*/*',
-            'accept-language': 'en-US',
-            'content-type': 'application/x-www-form-urlencoded; charset=UTF-8',
-            'origin': 'https://veoaifree.com',
-            'priority': 'u=1, i',
-            'referer': 'https://veoaifree.com/veo-video-generator/',
-            'sec-ch-ua': '"Chromium";v="127", "Not)A;Brand";v="99"',
-            'sec-ch-ua-mobile': '?1',
-            'sec-ch-ua-platform': '"Android"',
-            'sec-fetch-dest': 'empty',
-            'sec-fetch-mode': 'cors',
-            'sec-fetch-site': 'same-origin',
-            'user-agent': ua,
-            'x-requested-with': 'XMLHttpRequest',
-        }
-
         data3 = {
             'action': 'veo_video_generator',
             'nonce': non,
@@ -93,24 +80,31 @@ def generate_video(prompt: str) -> str:
             'actionType': 'final-video-results',
         }
 
+        print(f"⏳ Waiting 60 seconds...")
+        import time
         time.sleep(60)
+        
+        print(f"📡 Step 3: Getting final results...")
         r3 = requests.post(
             'https://veoaifree.com/wp-admin/admin-ajax.php',
-            headers=headers3,
-            data=data3
+            headers=headers2,
+            data=data3,
+            timeout=30
         )
+        print(f"📥 Step 3 status: {r3.status_code}")
+        print(f"📥 Step 3 FULL body: {r3.text}")  # Full response!
 
         return r3.text, None
 
     except Exception as e:
+        print(f"❌ Exception: {str(e)}")
         return None, f"❌ Error: {str(e)}"
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Start command handler"""
     await update.message.reply_text(
         "🎬 *Welcome to Veo AI Video Generator Bot!*\n\n"
-        "Just send me a text prompt and I'll generate a video for you!\n\n"
+        "Just send me a text prompt and I'll generate a video!\n\n"
         "Example: `A cat playing piano in a jazz club`\n\n"
         "⏳ Note: Video generation takes about 60 seconds.",
         parse_mode='Markdown'
@@ -118,7 +112,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Help command handler"""
     await update.message.reply_text(
         "📖 *How to use:*\n\n"
         "1. Send any text prompt\n"
@@ -132,13 +125,10 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle user messages and generate video"""
     prompt = update.message.text
     user = update.message.from_user
-
     logger.info(f"User {user.username} ({user.id}) requested: {prompt}")
 
-    # Send processing message
     processing_msg = await update.message.reply_text(
         f"🎬 *Generating your video...*\n\n"
         f"📝 Prompt: `{prompt}`\n\n"
@@ -146,8 +136,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode='Markdown'
     )
 
-    # Generate video
-    result, error = generate_video(prompt)
+    # Run blocking function in thread so bot doesn't freeze
+    loop = asyncio.get_event_loop()
+    result, error = await loop.run_in_executor(None, generate_video, prompt)
 
     if error:
         await processing_msg.edit_text(
@@ -156,11 +147,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    # Try to extract video URL from result
-    video_url_match = re.search(r'https?://[^\s"<>]+\.mp4', result)
+    print(f"🔍 Searching for mp4 in: {result}")
+    video_url_match = re.search(r'https?://[^\s"<>\\]+\.mp4', result)
 
     if video_url_match:
         video_url = video_url_match.group(0)
+        print(f"✅ Video URL found: {video_url}")
         await processing_msg.delete()
         await update.message.reply_video(
             video=video_url,
@@ -168,24 +160,19 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode='Markdown'
         )
     else:
-        # Send raw result if no video URL found
+        print(f"❌ No mp4 URL found in response!")
         await processing_msg.edit_text(
-            f"✅ *Response Received:*\n\n`{result[:3000]}`",
+            f"✅ *Response Received (no video URL found):*\n\n`{result[:3000]}`",
             parse_mode='Markdown'
         )
 
 
 def main():
-    """Start the bot"""
     print("🤖 Bot is starting...")
-
     app = Application.builder().token(BOT_TOKEN).build()
-
-    # Add handlers
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("help", help_command))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-
     print("✅ Bot is running!")
     app.run_polling(allowed_updates=Update.ALL_TYPES)
 
