@@ -14,7 +14,9 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Your Bot Token
-BOT_TOKEN = "1337331549:AAGFbCkxLVgDi4T2khzrrOJoAiz73BtjoD0"
+import os
+BOT_TOKEN = os.environ.get("1337331549:AAGFbCkxLVgDi4T2khzrrOJoAiz73BtjoD0")
+
 
 def generate_video(prompt: str) -> str:
     """Generate video using veoaifree.com"""
