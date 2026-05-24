@@ -1,0 +1,9 @@
+[phases.setup]
+nixPkgs = ["python313", "python313Packages.pip"]
+
+[phases.install]
+cmds = ["pip install requests python-telegram-bot==20.7 httpx"]
+
+[start]
+cmd = "python bot.py"
+
